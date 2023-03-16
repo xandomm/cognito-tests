@@ -6,18 +6,16 @@ const express = require('express');
 const request = require('request');
 const jwkToPem = require('jwk-to-pem');
 const jwt = require('jsonwebtoken');
-global.fetch = require('node-fetch');
+const { createHmac } = require('crypto');
+const { CognitoIdentityProviderClient, SignUpCommand } = require("@aws-sdk/client-cognito-identity-provider");
 
+const cognito = new CognitoIdentityProviderClient({
+  region: process.env.COGNITO_REGION,
+  userPoolId: process.env.USER_POOL_ID, 
+  clientId:  process.env.CLIENT_ID 
+});
 const app = express();
 const port = process.env.PORT || 3456;
-
-// Set up AWS Cognito Identity Provider client
-const cognito = new AWS.CognitoIdentityServiceProvider({
-  region: process.env.COGNITO_REGION,
-  userPoolId: process.env.USER_POOL_ID,     
-  clientId: process.env.CLIENT_ID 
-});
-
 const poolData = {    
   UserPoolId: process.env.USER_POOL_ID, 
   ClientId:  process.env.CLIENT_ID 
@@ -27,16 +25,42 @@ const userPool = new AmazonCognitoIdentity.CognitoUserPool(poolData);
 
 
 app.use(express.json());
-app.get('/is-logged', authenticate,(req,res,next) => {
+app.get('/is-logged', (req,res,next) => {
   res.status(200).send('is logged')
 })
 // Add middleware for authentication to the POST /user endpoint
-app.post('/user', (req, res, next) => {
+app.post('/user', async (req, res, next) => {
   const newUser = req.body;
+  const hasher = createHmac('sha256', process.env.SECRET_HASH);
 
-  // TODO: add code to create new user in your database
+  const now = new Date();
+  hasher.update(`${newUser.phone}${process.env.CLIENT_ID}`);
+  const secretHash = hasher.digest('base64');
+  const params = {
+    ClientId: process.env.CLIENT_ID,
+    Password: 'SamplePassword123!',
+    SecretHash:secretHash,
+    Username: newUser.phone,
+    UserAttributes: [
+      { Name: 'name', Value: 'Prasad Jayashanka' },
+      { Name: 'family_name', Value: 'jay' },
+      { Name: 'gender', Value: 'male' },
+      { Name: 'birthdate', Value: '1991-06-21' },
+      { Name: 'address', Value: 'CMB' },
+      { Name: 'email', Value: 'sampleEmail@gmail.com' },
+      { Name: 'picture', Value: 'ttt'},
+      {Name: 'updated_at', Value: Math.floor(now.getTime() / 1000).toString()}
+    ],
+  };
 
-  res.status(201).json(newUser);
+  try {
+    const data = await cognito.send(new SignUpCommand(params));
+    console.log('User signed up:', data.UserSub);
+    res.status(201).json(newUser);
+  } catch (err) {
+    console.error(err);
+    next(err);
+  }
 });
 
 
