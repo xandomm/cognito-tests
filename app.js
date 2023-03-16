@@ -1,45 +1,39 @@
-const AmazonCognitoIdentity = require('amazon-cognito-identity-js');
-const CognitoUserPool = AmazonCognitoIdentity.CognitoUserPool;
-const AWS = require('aws-sdk');
-require('dotenv/config');
 const express = require('express');
-const request = require('request');
+const { createHmac } = require('crypto');
+const AWS = require('aws-sdk');
+const { CognitoIdentityProviderClient, SignUpCommand } = require('@aws-sdk/client-cognito-identity-provider');
 const jwkToPem = require('jwk-to-pem');
 const jwt = require('jsonwebtoken');
-const { createHmac } = require('crypto');
-const { CognitoIdentityProviderClient, SignUpCommand } = require("@aws-sdk/client-cognito-identity-provider");
+const { config } = require('dotenv');
 
-const cognito = new CognitoIdentityProviderClient({
+config();
+
+const app = express();
+const port = process.env.PORT || 3456;
+const userPool = new AWS.CognitoIdentityServiceProvider({
   region: process.env.COGNITO_REGION,
   userPoolId: process.env.USER_POOL_ID, 
   clientId:  process.env.CLIENT_ID 
 });
-const app = express();
-const port = process.env.PORT || 3456;
-const poolData = {    
-  UserPoolId: process.env.USER_POOL_ID, 
-  ClientId:  process.env.CLIENT_ID 
-  }; 
-
-const userPool = new AmazonCognitoIdentity.CognitoUserPool(poolData);
-
 
 app.use(express.json());
-app.get('/is-logged', (req,res,next) => {
-  res.status(200).send('is logged')
-})
-// Add middleware for authentication to the POST /user endpoint
+
+app.get('/is-logged', (req, res) => {
+  res.status(200).send('is logged');
+});
+
 app.post('/user', async (req, res, next) => {
   const newUser = req.body;
   const hasher = createHmac('sha256', process.env.SECRET_HASH);
-
   const now = new Date();
+
   hasher.update(`${newUser.phone}${process.env.CLIENT_ID}`);
   const secretHash = hasher.digest('base64');
+
   const params = {
     ClientId: process.env.CLIENT_ID,
     Password: 'SamplePassword123!',
-    SecretHash:secretHash,
+    SecretHash: secretHash,
     Username: newUser.phone,
     UserAttributes: [
       { Name: 'name', Value: 'Prasad Jayashanka' },
@@ -49,12 +43,12 @@ app.post('/user', async (req, res, next) => {
       { Name: 'address', Value: 'CMB' },
       { Name: 'email', Value: 'sampleEmail@gmail.com' },
       { Name: 'picture', Value: 'ttt'},
-      {Name: 'updated_at', Value: Math.floor(now.getTime() / 1000).toString()}
+      { Name: 'updated_at', Value: Math.floor(now.getTime() / 1000).toString() }
     ],
   };
 
   try {
-    const data = await cognito.send(new SignUpCommand(params));
+    const data = await userPool.send(new SignUpCommand(params));
     console.log('User signed up:', data.UserSub);
     res.status(201).json(newUser);
   } catch (err) {
@@ -63,8 +57,7 @@ app.post('/user', async (req, res, next) => {
   }
 });
 
-
-app.get('/', (req, res, next) => {
+app.get('/', (req, res) => {
   res.send('Hello World');
 });
 
